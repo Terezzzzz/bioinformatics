@@ -1,0 +1,59 @@
+# The raw data is the Count table
+
+exprSet<-read.table("D:/GSE76743/nor_hyp.txt",header = T,row.names= 1)
+head(exprSet)
+
+condition<-factor(c(rep("normal",2),rep("hypoxia",2)),levels = c("normal","hypoxia"))
+
+# Let the first column be the row name (gene) of exprset, and the column name is the sample number
+colData<-data.frame(row.names = colnames(exprSet),condition)
+
+library(DESeq2)
+dds<-DESeqDataSetFromMatrix(countData=exprSet, colData=colData, design=~condition)
+dds<-dds [rowSums(counts(dds)) > 1, ] # preliminary filter
+dds<-DESeq(dds)
+
+# Matrix of normalization
+vst<-varianceStabilizingTransformation(dds) #>=50Large sample size
+exprSet_new=assay(vst)
+write.csv(exprSet_new,"1_PFC_normlization_matrix_re.csv")
+
+# PCA
+plotPCA(vst)
+
+# To view the differential expression results ----------------------------------------------------------------
+res<-results(dds)
+res<-na.omit(res)
+summary(res)
+
+write.table(res, file="D:/GSE76743/result.txt", quote =FALSE)
+
+# Human Genome Database
+library(org.Hs.eg.db)
+# Add the full gene name
+res$description <- mapIds(x = org.Hs.eg.db,
+                              keys = row.names(res),
+                              column = "GENENAME",
+                              keytype = "SYMBOL",
+                              multiVals = "first")
+# Add gene symbol
+res$symbol <- row.names(results)
+# Add ENTREZ ID
+res$entrez <- mapIds(x = org.Hs.eg.db,
+                         keys = row.names(res),
+                         column = "ENTREZID",
+                         keytype = "SYMBOL",
+                         multiVals = "first")
+# Add ENSEMBL
+res$ensembl <- mapIds(x = org.Hs.eg.db,
+                          keys = row.names(res),
+                          column = "ENSEMBL",
+                          keytype = "SYMBOL",
+                          multiVals = "first")
+# Take the gene of (p < 0.05) 
+results_sig <- subset(res, padj < 0.05)
+# View the results
+head(results_sig)
+
+write.table(results_sig, file="D:/GSE76743/results_sig.txt", quote =FALSE)
+
