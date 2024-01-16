@@ -1,0 +1,157 @@
+## DESeq2 Obtaining dds
+dds <- DESeq2(dds)
+res <- results(dds)
+
+res<-read.table("D:/GSE76743/result_last.txt",header = T,row.names= 1) 
+res <- res[order(res$padj),]
+res <- as.data.frame(res)
+# Omit NA
+# res <- na.omit(res)
+
+# Heatmap
+
+library(pheatmap)
+choose_gene <- head(rownames(res),1000)  ##50 maybe better
+exprSet<-read.table("D:/GSE76743/nor_hyp.txt",header = T,row.names= 1)
+condition<-factor(c(rep("normal",2),rep("hypoxia",2)),levels = c("normal","hypoxia"))
+colData<-data.frame(row.names = colnames(exprSet),condition)
+choose_matrix <- exprSet[choose_gene,]
+choose_matrix <- t(scale(t(choose_matrix)))
+p <- pheatmap(choose_matrix,
+              scale = "row",show_colnames =T,show_rownames = F, 
+              cluster_cols = T, 
+              annotation_col = colData,
+              main = "GSE76743 DEGs",
+              filename ="D:/GSE76743/heatmap.png")
+
+
+# Volcano
+
+# Fold change and FDR-corrected Pvalues were collected from DESeq2 results
+##  change pvalues to -log10 (1.3 = 0.05)
+data <- data.frame(gene = row.names(res),
+                   pval = -log10(res$padj), 
+                   lfc = res$log2FoldChange)
+
+# Delete any rows with NA
+data <- na.omit(data)
+
+library(ggplot2)
+library(dplyr)
+## If fold-change > 0 and pvalue > 1.5 (Increased significant)
+## If fold-change < 0 and pvalue > 1.5 (Decreased significant)
+data <- mutate(data, color = case_when(data$lfc > 0 & data$pval > 1.5 ~ "Increased",
+                                       data$lfc < 0 & data$pval > 1.5 ~ "Decreased",
+                                       data$pval < 1.5 ~ "nonsignificant"))
+
+vol <- ggplot(data, aes(x = lfc, y = pval, color = color))
+
+vol +   
+  ggtitle(label = "Volcano Plot", subtitle = "Colored by fold-change direction") +
+  geom_point(size = 2.5, alpha = 0.8, na.rm = T) +
+  scale_color_manual(name = "Directionality",
+                     values = c(Increased = "#008B00", Decreased = "#CD4F39", nonsignificant = "darkgray")) +
+  theme_bw(base_size = 14) + 
+  theme(legend.position = "right") + 
+  xlab(expression(log[2]("normoxia" / "hypoxia"))) + 
+  ylab(expression(-log[10]("adjusted p-value"))) + 
+  geom_hline(yintercept = 1.3, colour = "darkgrey") + 
+  scale_y_continuous(trans = "log1p")
+
+ggsave("D:/GEO/GSE76743 huvec hypoxia/Volcano Plot.png")
+
+
+# Enrichment of pathways
+
+# Genes without any entrez identifier were deleted
+results_sig_entrez <- subset(results_sig, is.na(entrez) == FALSE)
+# A matrix of log2 fold change genes was created
+gene_matrix <- results_sig_entrez$log2FoldChange
+# Add entrezID as the name of each logFC entry
+names(gene_matrix) <- results_sig_entrez$entrez
+# View the format of the gene matrix
+##- Names = ENTREZ ID
+##- Values = Log2 Fold changes
+head(gene_matrix)
+
+library(clusterProfiler)
+
+# KEGG enrichment
+library(KEGG.db)
+kegg_enrich <- enrichKEGG(gene = names(gene_matrix),
+                          organism = 'hsa',
+                          pvalueCutoff = 0.05, 
+                          qvalueCutoff = 0.10)
+# Visualization of results
+# Bar chart
+png("D:/GSE76743/KEGG enrichment.png")
+barplot(kegg_enrich, 
+        drop = TRUE, 
+        showCategory = 15, 
+        title = "KEGG Enrichment Pathways",
+        font.size = 8)
+dev.off()
+# Bubble diagram
+png("D:/GEO/GSE76743 huvec hypoxia/KEGG dotplot.png")
+dotplot(kegg_enrich, x = "GeneRatio", color = "p.adjust", size = "Count", showCategory = 15) 
+dev.off()
+# KEGG pathway network diagram
+library(enrichplot)
+kegg_enrich2 = setReadable(kegg_enrich, 
+                  OrgDb = "org.Hs.eg.db", 
+                  keyType = "ENTREZID") 
+aaa <- read.table("D:/GEO/GSE76743 huvec hypoxia/result_last.txt",header = T)
+logFC <- aaa$log2FoldChange
+names(logFC) <- aaa$id
+head(logFC)
+png("D:/GEO/GSE76743 huvec hypoxia/KEGG cnetplot.png")
+ctgy <- c("Endocrine resistance","Notch signaling pathway")
+cnetplot(kegg_enrich2, showCategory = ctgy,              
+         color.params = list(foldChange = logFC, 
+                             edge = T))
+dev.off()
+
+
+# GO enrichment
+library(GO.db)
+go_enrich <- enrichGO(gene = names(gene_matrix),
+                      OrgDb = 'org.Hs.eg.db', 
+                      readable = T,
+                      ont = "BP",
+                      pvalueCutoff = 0.05, 
+                      qvalueCutoff = 0.10)
+# Visualization of results
+# Bar chart
+png("D:/GEO/GSE76743 huvec hypoxia/go_enrich.png")
+barplot(go_enrich, 
+        drop = TRUE, 
+        showCategory = 15, 
+        title = "GO Biological Pathways",
+        font.size = 8)
+dev.off()
+# Bubble diagram
+library(GOplot)
+bbb <- read.table("D:/GSE76743/go david for pic.txt",header = T, sep="\t")
+ccc <- read.table("D:/GSE76743/go gene for pic.txt",header = T)
+circ <- circle_dat(bbb, ccc)
+png("D:/GEO/GSE76743 huvec hypoxia/gobar.png", width = 1800,height = 1200,units = "px")
+GOBar(circ, display = 'multiple', title = 'Z-score coloured barplot')
+dev.off()
+png("D:/GSE76743/gobubble.png", width = 1800,height = 1200,units = "px")
+GOBubble(circ, labels = 4)
+dev.off()
+
+# KEGG pathway visualization
+library(pathview)
+pathview(gene.data = gene_matrix, 
+         pathway.id = "01522", 
+         species = 'hsa')
+
+pathview(gene.data = gene_matrix, 
+         limit = list(gene = 2),
+         pathway.id = "04330", 
+         species = "hsa", 
+         kegg.native = F, 
+         sign.pos= "bottomleft",
+         out.suffix = "4")
+
